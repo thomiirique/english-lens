@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import faulthandler
+import logging
 import os
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QTimer, Qt
+from PySide6.QtCore import QObject, QTimer
 from PySide6.QtGui import QAction, QColor, QCursor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
@@ -17,6 +19,26 @@ from hotkey import WindowsHotkeyManager
 from overlay_ui import LensOverlay
 
 _PID_FILE = Path(tempfile.gettempdir()) / "english_lens.pid"
+_LOG_FILE = Path(tempfile.gettempdir()) / "english_lens.log"
+
+
+def _setup_logging() -> None:
+    logging.basicConfig(
+        filename=str(_LOG_FILE),
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        encoding="utf-8",
+    )
+    try:
+        fh = open(_LOG_FILE, "a", encoding="utf-8")
+        faulthandler.enable(fh)
+    except Exception:  # noqa: BLE001
+        pass
+
+    def _excepthook(exc_type, exc_value, exc_tb):
+        logging.exception("Excepcion no capturada", exc_info=(exc_type, exc_value, exc_tb))
+
+    sys.excepthook = _excepthook
 
 
 def _ensure_single_instance() -> None:
@@ -85,8 +107,9 @@ class EnglishLensApp(QObject):
         self.tray.show()
 
         self.hotkey = WindowsHotkeyManager(app)
-        self.hotkey.triggered.connect(self.trigger_capture, Qt.ConnectionType.QueuedConnection)
+        self.hotkey.triggered.connect(self.trigger_capture)
         active = self.hotkey.register()
+        logging.info("English Lens iniciado (PID=%s). Hotkeys activos=%s", os.getpid(), active)
         if active:
             self.tray.showMessage(
                 "English Lens activo",
@@ -133,6 +156,7 @@ class EnglishLensApp(QObject):
 
 
 def main() -> int:
+    _setup_logging()
     _ensure_single_instance()
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
