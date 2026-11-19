@@ -50,3 +50,7 @@ Registro paso a paso de decisiones, experimentos, problemas encontrados y soluci
 - **Diccionario local liviano (`src/common_words.py`, ~20 KB):** Cubre ~400+ palabras base más frecuentes (+ plurales y conjugaciones regulares `-s/-es/-ed/-ing`) en **0 ms y 0 tokens**. Así Gemini no gasta cuota traduciendo palabras básicas como `they`, `can`, `at`, `of`.
 - **Énfasis fuerte en gramática:** Nuevo bloque principal **"📐 Cómo leer la gramática"** (`GrammarPoint`: patrón exacto + regla + cómo decodificarlo en español), arriba de los *chunks*.
 - **Fix del tooltip falso de API Key:** Separamos el esquema JSON de Gemini (`GeminiTutorPayload`) del campo interno `error_message` para que nunca vuelva a mostrar `"configurá GEMINI_API_KEY"` cuando la API respondió bien.
+
+### Investigación pedagógica ampliada y estimación de cuota
+- **Consumo medido:** ~970 tokens por captura (1 request/captura), totalmente viable en el tier gratuito diario de Google AI Studio.
+- **Documento `docs/03-investigacion-aprendizaje-e-ideas.md`:** Investigamos *Involvement Load Hypothesis*, *Desirable Difficulties / Retrieval Practice*, *Phonological Loop (TTS bimodal)*, *Conciencia Morfológica / Falsos Amigos* y *Sentence Mining*, definiendo 6 features concretas para las próximas iteraciones.

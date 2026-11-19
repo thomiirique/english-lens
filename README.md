@@ -14,7 +14,8 @@ Todo el diseño, la investigación pedagógica y el avance técnico se documenta
 
 1. [01 - Fundamentos de aprendizaje de idiomas](docs/01-fundamentos-aprendizaje.md): Teoría de adquisición de segundas lenguas aplicada al diseño de la app.
 2. [02 - Arquitectura y plan de desarrollo](docs/02-arquitectura-y-plan.md): Stack técnico, flujo de datos y fases de implementación.
-3. [Bitácora de desarrollo](docs/BITACORA.md): Registro cronológico de decisiones, pruebas y avances.
+3. [03 - Investigación de aprendizaje e ideas](docs/03-investigacion-aprendizaje-e-ideas.md): Ciencia cognitiva (Retrieval Practice, Bucle Fonológico, Morfología, Sentence Mining) convertida en features concretas para la Fase 4+.
+4. [Bitácora de desarrollo](docs/BITACORA.md): Registro cronológico de decisiones, pruebas y avances.
 
 ## 🛠️ Stack elegido
 - **Lenguaje:** Python 3.14
