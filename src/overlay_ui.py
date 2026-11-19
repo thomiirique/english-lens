@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 
 from ai_tutor import TutorAnalysis, analyze_text_with_gemini
 from capture import ScreenCapture
+from common_words import lookup_common_word
 from ocr_windows import OcrResult, OcrWord, run_windows_ocr
 
 
@@ -196,16 +197,16 @@ class TipsPanel(QFrame):
 
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
-        self.scroll.setMaximumHeight(240)
+        self.scroll.setMaximumHeight(330)
         self.content_widget = QWidget()
         self.content_widget.setStyleSheet("background: transparent;")
         self.content_layout = QVBoxLayout(self.content_widget)
         self.content_layout.setContentsMargins(0, 2, 0, 2)
-        self.content_layout.setSpacing(8)
+        self.content_layout.setSpacing(10)
         self.scroll.setWidget(self.content_widget)
         outer.addWidget(self.scroll)
 
-        self.setFixedWidth(560)
+        self.setFixedWidth(610)
         self.hide()
 
     def _clear_content(self) -> None:
@@ -218,6 +219,7 @@ class TipsPanel(QFrame):
     def set_loading(self, message: str) -> None:
         self._clear_content()
         self.status_label.setText(message)
+        self.status_label.setStyleSheet("color: #94a3b8;")
         self.status_label.show()
         self.scroll.hide()
         self.adjustSize()
@@ -225,14 +227,13 @@ class TipsPanel(QFrame):
     def show_analysis(self, analysis: TutorAnalysis, word_count: int, ocr_lang: str) -> None:
         self._clear_content()
 
-        has_data = bool(analysis.words or analysis.chunks or analysis.reading_tips)
-        if analysis.status_message and not has_data:
-            self.status_label.setText(analysis.status_message)
+        if analysis.error_message:
+            self.status_label.setText(analysis.error_message)
             self.status_label.setStyleSheet("color: #fbbf24;")
             self.status_label.show()
         else:
             self.status_label.setText(
-                f"Tocá cualquier palabra del recorte para ver su traducción en contexto "
+                f"Tocá cualquier palabra del recorte para ver su traducción "
                 f"({word_count} palabras · OCR: {ocr_lang})"
             )
             self.status_label.setStyleSheet("color: #94a3b8;")
@@ -240,10 +241,30 @@ class TipsPanel(QFrame):
 
         has_blocks = False
 
+        # 1. PRIORIDAD PRINCIPAL: Entendimiento de la gramática
+        if analysis.grammar_points:
+            has_blocks = True
+            gram_title = QLabel("📐 Cómo leer la gramática")
+            gram_title.setFont(QFont("Segoe UI", 10.5, QFont.Weight.Bold))
+            gram_title.setStyleSheet("color: #34d399;")
+            self.content_layout.addWidget(gram_title)
+
+            for gp in analysis.grammar_points:
+                lbl = QLabel(
+                    f"<b style='color:#f8fafc;'>“{gp.pattern}”</b> "
+                    f"<span style='color:#34d399;'>[{gp.concept}]</span><br>"
+                    f"<span style='color:#e2e8f0;'>{gp.how_to_read}</span>"
+                )
+                lbl.setWordWrap(True)
+                lbl.setTextFormat(Qt.TextFormat.RichText)
+                lbl.setFont(QFont("Segoe UI", 9.5))
+                self.content_layout.addWidget(lbl)
+
+        # 2. Frases de manual / Chunks
         if analysis.chunks:
             has_blocks = True
             sec_title = QLabel("🧩 Frases de manual / Chunks")
-            sec_title.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+            sec_title.setFont(QFont("Segoe UI", 10.5, QFont.Weight.Bold))
             sec_title.setStyleSheet("color: #a78bfa;")
             self.content_layout.addWidget(sec_title)
 
@@ -255,19 +276,6 @@ class TipsPanel(QFrame):
                 )
                 lbl.setWordWrap(True)
                 lbl.setTextFormat(Qt.TextFormat.RichText)
-                lbl.setFont(QFont("Segoe UI", 9.5))
-                self.content_layout.addWidget(lbl)
-
-        if analysis.reading_tips:
-            has_blocks = True
-            tips_title = QLabel("💡 Tips para leer la estructura")
-            tips_title.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
-            tips_title.setStyleSheet("color: #34d399;")
-            self.content_layout.addWidget(tips_title)
-
-            for tip in analysis.reading_tips:
-                lbl = QLabel(f"• {tip}")
-                lbl.setWordWrap(True)
                 lbl.setFont(QFont("Segoe UI", 9.5))
                 self.content_layout.addWidget(lbl)
 
@@ -520,14 +528,24 @@ class LensOverlay(QWidget):
     def _show_word_popup(self, index: int) -> None:
         word, rect = self._word_rects[index]
         if self._analysis is None:
-            self._tooltip.show_word(word.text, "Cargando traducción...", "", rect)
+            local = lookup_common_word(word.text)
+            if local is not None:
+                base, tr, pos = local
+                title = f"{word.text}  ({base})" if base != word.text.lower().strip(".,;:!?\"'()") else word.text
+                self._tooltip.show_word(title, tr, f"{pos} · diccionario local", rect)
+            else:
+                self._tooltip.show_word(word.text, "Analizando contexto...", "", rect)
             return
 
         entry = self._analysis.lookup_word(word.text)
         chunks = self._analysis.find_chunks_for_word(word.text)
 
         if entry is not None:
-            title = f"{entry.word}  ({entry.lemma})" if entry.lemma.lower() != entry.word.lower() else entry.word
+            title = (
+                f"{entry.word}  ({entry.lemma})"
+                if entry.lemma.lower() != entry.word.lower().strip(".,;:!?\"'()")
+                else entry.word
+            )
             meta_parts = [entry.pos] if entry.pos else []
             if entry.note:
                 meta_parts.append(entry.note)
@@ -535,13 +553,13 @@ class LensOverlay(QWidget):
                 chunk_txt = " · ".join(f"Parte de “{c.phrase}” = {c.meaning}" for c in chunks)
                 meta_parts.append(chunk_txt)
             self._tooltip.show_word(title, entry.translation, " — ".join(meta_parts), rect)
+        elif chunks:
+            chunk_txt = " / ".join(f"“{c.phrase}” → {c.meaning}" for c in chunks)
+            self._tooltip.show_word(word.text, chunk_txt, "parte de una frase de manual", rect)
+        elif self._analysis.error_message:
+            self._tooltip.show_word(word.text, "Sin conexión con Gemini", self._analysis.error_message, rect)
         else:
-            fallback = (
-                "Sin traducción cargada (configurá GEMINI_API_KEY en .env)"
-                if self._analysis.status_message
-                else "Palabra detectada (sin nota adicional)"
-            )
-            self._tooltip.show_word(word.text, fallback, "", rect)
+            self._tooltip.show_word(word.text, "Palabra transparente / cognado", "", rect)
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)

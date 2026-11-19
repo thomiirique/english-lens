@@ -44,3 +44,9 @@ Registro paso a paso de decisiones, experimentos, problemas encontrados y soluci
 - **Desenfoque al soltar el mouse:** Mientras arrastrás el recuadro la pantalla ahora se ve nítida (con un velo sutil) para seleccionar con precisión; recién al soltar el mouse se desenfoca todo el fondo dejando en foco solo el recorte.
 - **Modelos Gemini gratuitos actualizados:** `gemini-2.5-flash` y `gemini-2.0-flash` devolvían `404` para cuentas nuevas. Actualizamos a `gemini-3.5-flash-lite` (principal, ultra rápido) con fallback a `gemini-3.8-flash` y `gemini-3.1-flash-lite`.
 - **Carga de `.env` robusta:** Se carga explícitamente desde la raíz del proyecto con `override=True`.
+
+### Mejoras tras la primera prueba real en pantalla
+- **Atajos globales `F9` + `Ctrl + Alt + E`:** `F10` en Windows suele ser interceptado como tecla de menú del sistema (`WM_SYSKEYDOWN`). Reemplazado por **`F9`** (tecla única sin conflicto) + **`Ctrl + Alt + E`** como respaldo simultáneo.
+- **Diccionario local liviano (`src/common_words.py`, ~20 KB):** Cubre ~400+ palabras base más frecuentes (+ plurales y conjugaciones regulares `-s/-es/-ed/-ing`) en **0 ms y 0 tokens**. Así Gemini no gasta cuota traduciendo palabras básicas como `they`, `can`, `at`, `of`.
+- **Énfasis fuerte en gramática:** Nuevo bloque principal **"📐 Cómo leer la gramática"** (`GrammarPoint`: patrón exacto + regla + cómo decodificarlo en español), arriba de los *chunks*.
+- **Fix del tooltip falso de API Key:** Separamos el esquema JSON de Gemini (`GeminiTutorPayload`) del campo interno `error_message` para que nunca vuelva a mostrar `"configurá GEMINI_API_KEY"` cuando la API respondió bien.

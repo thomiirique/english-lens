@@ -33,11 +33,11 @@ Todo el diseño, la investigación pedagógica y el avance técnico se documenta
    GEMINI_API_KEY=tu_api_key_gratis
    ```
 3. Ejecutá `run.bat` (o `.\.venv\Scripts\python.exe src\main.py`).
-4. Presioná **`F10`** en cualquier pantalla, arrastrá sobre el texto en inglés y tocá cada palabra para ver su traducción en contexto + tips de lectura.
+4. Presioná **`F9`** (o **`Ctrl + Alt + E`**) en cualquier pantalla, arrastrá sobre el texto en inglés y tocá cada palabra para ver su traducción + desglose gramatical y frases de manual.
 
 ## 🗺️ Roadmap
 - [x] **Fase 0:** Investigación pedagógica, definición de UX y documentación inicial.
-- [x] **Fase 1:** Atajo global (`F10`) + captura de pantalla + overlay fullscreen con fondo desenfocado.
+- [x] **Fase 1:** Atajos globales (`F9` y `Ctrl + Alt + E`) + captura de pantalla + overlay fullscreen con desenfoque al soltar el mouse.
 - [x] **Fase 2:** Integración de OCR local de Windows (`Windows.Media.Ocr`) con detección de coordenadas por palabra.
-- [x] **Fase 3:** Interacción palabra por palabra (clic → traducción contextual) + integración con Gemini API gratuita para tips y *chunks*.
+- [x] **Fase 3:** Diccionario local liviano (~35 KB, 0 ms) para palabras frecuentes + Gemini API gratuita enfocada en **gramática**, *chunks* y vocabulario difícil.
 - [ ] **Fase 4:** Pulido de UX, configuración de nivel de inglés (A2–C1) y registro opcional de palabras aprendidas.

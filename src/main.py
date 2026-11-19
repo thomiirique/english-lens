@@ -39,10 +39,10 @@ class EnglishLensApp:
         self.overlay: LensOverlay | None = None
 
         self.tray = QSystemTrayIcon(_create_tray_icon(), app)
-        self.tray.setToolTip("English Lens — Presioná F10 para capturar")
+        self.tray.setToolTip("English Lens — Presioná F9 o Ctrl + Alt + E para capturar")
 
         menu = QMenu()
-        capture_action = QAction("Capturar ahora (F10)", menu)
+        capture_action = QAction("Capturar ahora (F9 / Ctrl+Alt+E)", menu)
         capture_action.triggered.connect(self.trigger_capture)
         quit_action = QAction("Salir", menu)
         quit_action.triggered.connect(self.quit)
@@ -56,16 +56,17 @@ class EnglishLensApp:
 
         self.hotkey = WindowsHotkeyManager(app)
         self.hotkey.triggered.connect(self.trigger_capture)
-        ok = self.hotkey.register()
-        if ok:
+        active = self.hotkey.register()
+        if active:
+            keys_str = " o ".join(active)
             self.tray.showMessage(
                 "English Lens activo",
-                "Presioná F10 en cualquier pantalla para leer con desenfoque y tips.",
+                f"Presioná {keys_str} en cualquier pantalla para leer con desenfoque y gramática.",
                 QSystemTrayIcon.MessageIcon.Information,
                 2500,
             )
         else:
-            print("[AVISO] No se pudo registrar F10 (puede estar en uso por otra app).")
+            print("[AVISO] No se pudo registrar ningún atajo global.")
 
     def _on_tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         if reason == QSystemTrayIcon.ActivationReason.DoubleClick:

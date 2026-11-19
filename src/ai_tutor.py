@@ -1,10 +1,12 @@
-"""Tutor lingüístico basado en Google Gemini API (tier gratuito via google-genai).
+"""Tutor lingüístico basado en Google Gemini API (tier gratuito) + diccionario local liviano.
 
 Aplica los principios documentados en docs/01-fundamentos-aprendizaje.md:
 - NO traduce el texto completo.
-- Devuelve un mapa de traducciones contextuales palabra por palabra (en 1 sola llamada).
-- Detecta chunks / phrasal verbs / frases de manual como bloques completos.
-- Da 1 a 3 tips ultracortos de lectura y gramática.
+- Las palabras básicas/frecuentes se resuelven en 0 ms desde src/common_words.py (0 tokens).
+- Gemini se enfoca en:
+  1) Entender la GRAMÁTICA y cómo leer la estructura de las oraciones.
+  2) Detectar frases de manual / chunks / phrasal verbs.
+  3) Traducir SOLO palabras difíciles, técnicas o con sentido especial en contexto.
 """
 
 from __future__ import annotations
@@ -17,46 +19,79 @@ from typing import Optional
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
+from common_words import lookup_common_word
+
 _ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 
 
 class WordTranslation(BaseModel):
-    word: str = Field(description="Palabra exacta tal como aparece en el texto en inglés.")
-    lemma: str = Field(description="Forma base o infinitivo si difiere (ej. 'went' -> 'go'), si no, igual a word.")
+    word: str = Field(description="Palabra exacta del texto en inglés.")
+    lemma: str = Field(description="Forma base o infinitivo si difiere (ej. 'went' -> 'go').")
     translation: str = Field(description="Traducción breve al español EXACTAMENTE para este contexto (1 a 4 palabras).")
-    pos: str = Field(description="Categoría gramatical corta en español (ej. 'verbo', 'sustantivo', 'phrasal verb', 'conector').")
+    pos: str = Field(description="Categoría gramatical corta en español (ej. 'verbo', 'sustantivo', 'adjetivo').")
     note: str = Field(default="", description="Micro-nota opcional de máx. 10 palabras si hay matiz o falso amigo.")
+
+
+class GrammarPoint(BaseModel):
+    pattern: str = Field(description="Fragmento o estructura exacta del texto (ej. 'If AI were to evade', 'much more powerful greenhouse gases').")
+    concept: str = Field(description="Nombre claro de la regla gramatical (ej. '2do condicional formal (were to)', 'Voz pasiva con modal', 'Cadena de modificadores').")
+    how_to_read: str = Field(description="Explicación práctica en español de CÓMO leer y decodificar esa estructura sin traducir todo el párrafo (1 a 2 líneas).")
 
 
 class LexicalChunk(BaseModel):
     phrase: str = Field(description="Expresión, phrasal verb, colocación o frase de manual en inglés.")
     meaning: str = Field(description="Significado natural en español.")
-    tip: str = Field(description="Explicación de 1 línea de por qué se lee como bloque y cómo recordarla.")
+    tip: str = Field(description="Explicación de 1 línea de por qué se lee como bloque.")
 
 
-class TutorAnalysis(BaseModel):
-    words: list[WordTranslation] = Field(
+class GeminiTutorPayload(BaseModel):
+    """Esquema estricto que devuelve Gemini (sin campos internos de error)."""
+
+    grammar_points: list[GrammarPoint] = Field(
         default_factory=list,
-        description="Traducción contextual de cada palabra distinta del texto para permitir clic palabra por palabra.",
+        description="Entre 2 y 4 explicaciones claras de la gramática y estructura del texto (PRIORIDAD PRINCIPAL).",
     )
     chunks: list[LexicalChunk] = Field(
         default_factory=list,
-        description="Frases de manual, phrasal verbs, modismos o colocaciones encontradas en el texto (0 a 4).",
+        description="Frases de manual, phrasal verbs, colocaciones o modismos (0 a 4).",
     )
-    reading_tips: list[str] = Field(
+    words: list[WordTranslation] = Field(
         default_factory=list,
-        description="Máximo 3 tips muy breves en español sobre gramática o estructura para leer la frase sin traducirla entera.",
+        description="SOLO palabras de nivel intermedio/avanzado, técnicas o con significado especial en este contexto. Omitir palabras básicas (the, they, is, can, and, of, for, etc.).",
     )
-    status_message: str = Field(default="", description="Mensaje interno de estado o error.")
+
+
+class TutorAnalysis(BaseModel):
+    """Modelo completo consumido por la interfaz."""
+
+    grammar_points: list[GrammarPoint] = Field(default_factory=list)
+    chunks: list[LexicalChunk] = Field(default_factory=list)
+    words: list[WordTranslation] = Field(default_factory=list)
+    error_message: str = Field(default="")
 
     def lookup_word(self, raw_word: str) -> Optional[WordTranslation]:
-        """Busca la traducción contextual normalizando signos de puntuación."""
+        """Busca primero en la traducción contextual de Gemini y luego en el diccionario local."""
         target = _normalize_token(raw_word)
         if not target:
             return None
+
+        # 1. Prioridad: traducción contextual de Gemini (palabras difíciles o polisémicas)
         for entry in self.words:
             if _normalize_token(entry.word) == target:
                 return entry
+
+        # 2. Fallback instantáneo: diccionario local de palabras frecuentes (0 ms, 0 tokens)
+        local = lookup_common_word(raw_word)
+        if local is not None:
+            base, translation, pos = local
+            return WordTranslation(
+                word=raw_word,
+                lemma=base,
+                translation=translation,
+                pos=f"{pos} · local",
+                note="",
+            )
+
         return None
 
     def find_chunks_for_word(self, raw_word: str) -> list[LexicalChunk]:
@@ -76,16 +111,23 @@ def _normalize_token(token: str) -> str:
     return re.sub(r"^[^a-zA-Z0-9']+|[^a-zA-Z0-9']+$", "", token).lower()
 
 
-SYSTEM_PROMPT = """Sos un tutor experto en enseñanza de inglés para hispanohablantes (enfoque comunicativo, Enfoque Léxico de chunks e Input Comprensible i+1).
+SYSTEM_PROMPT = """Sos un profesor experto en enseñanza de lectura en inglés para hispanohablantes (Enfoque Léxico + Noticing Hypothesis + Input Comprensible i+1).
 
-El usuario capturó un fragmento de texto en inglés de su pantalla y quiere LEERLO Y ENTENDERLO POR SÍ MISMO, NO recibir una traducción completa.
+El usuario capturó un fragmento en inglés y quiere ENTENDER CÓMO FUNCIONA LA GRAMÁTICA para poder leerlo solo. NO quiere que le traduzcas el párrafo entero.
 
-REGLAS ESTRICTAS:
+PRIORIDADES Y REGLAS ESTRICTAS:
 1. NUNCA traduzcas el texto completo ni las oraciones enteras.
-2. En `words`: incluí cada palabra relevante del texto (evitá repetir duplicados exactos) con su traducción breve AL ESPAÑOL en ESE contexto exacto (no definiciones largas de diccionario).
-3. En `chunks`: detectá "frases de manual", phrasal verbs, colocaciones, conectores compuestos o modismos (ej: "end up", "as a matter of fact", "take for granted", "had I known"). Explicá en 1 línea cómo leerlos como un solo bloque.
-4. En `reading_tips`: dá entre 1 y 3 tips MUY cortos (máximo 18 palabras cada uno) en español claro y directo señalando estructuras gramaticales clave (tiempos verbales, voz pasiva, omisiones, conectores, orden de adjetivos).
-5. Si el texto tiene errores menores de OCR, inferí la palabra inglesa correcta por contexto.
+2. PRIORIDAD #1 — `grammar_points` (2 a 4 puntos):
+   Explicá de forma clara, didáctica y práctica las estructuras gramaticales que hacen que la frase cueste leer:
+   - Tiempos verbales, condicionales, modales (would/could/were to/had I...), voz pasiva ("can be produced").
+   - Orden de palabras en inglés distinto al español (ej: cadenas de adjetivos/sustantivos que se leen de atrás para adelante, como "powerful greenhouse gases").
+   - Conectores, aclaraciones y cláusulas subordinadas ("that is", "to the point that", "there is no ... left").
+   Usá español claro y directo: decile al usuario *cómo decodificar* esa estructura al leerla.
+3. PRIORIDAD #2 — `chunks` (0 a 4 bloques):
+   Detectá "frases de manual", colocaciones fijas, phrasal verbs o modismos que se leen como una sola unidad.
+4. PRIORIDAD #3 — `words` (SOLO vocabulario no básico):
+   Ya tenemos un diccionario local offline para palabras comunes (pronombres, artículos, preposiciones, verbos básicos como be/have/can/do/make/produce/exist/year/point).
+   NO gastes espacio en esas palabras básicas. Incluí en `words` ÚNICAMENTE palabras intermedias/avanzadas, técnicas, poco frecuentes o usadas con un sentido especial en este contexto (ej: evade, orchestrate, megatons, sufficient, niche, persist, atmosphere, greenhouse, scales, chemicals).
 """
 
 
@@ -103,15 +145,14 @@ def analyze_text_with_gemini(text: str, user_level: str = "B1") -> TutorAnalysis
 
     if not api_key or api_key == "pega_tu_api_key_aca":
         return TutorAnalysis(
-            status_message=(
-                "Modo OCR local activo (sin API Key). "
-                "Creá tu archivo .env con GEMINI_API_KEY (gratis en aistudio.google.com/apikey) "
-                "para activar las traducciones por palabra y tips de lectura."
+            error_message=(
+                "Modo offline (sin API Key). Configurá GEMINI_API_KEY en .env "
+                "(gratis en aistudio.google.com/apikey) para activar el análisis gramatical con Gemini."
             )
         )
 
     if not text.strip():
-        return TutorAnalysis(status_message="No se detectó texto en el recorte seleccionado.")
+        return TutorAnalysis(error_message="No se detectó texto en el recorte seleccionado.")
 
     from google import genai
     from google.genai import types
@@ -137,18 +178,27 @@ def analyze_text_with_gemini(text: str, user_level: str = "B1") -> TutorAnalysis
                 config=types.GenerateContentConfig(
                     system_instruction=SYSTEM_PROMPT,
                     response_mime_type="application/json",
-                    response_schema=TutorAnalysis,
+                    response_schema=GeminiTutorPayload,
                     temperature=0.2,
                 ),
             )
+            payload: Optional[GeminiTutorPayload] = None
             if response.parsed is not None:
-                return response.parsed
-            if response.text:
-                return TutorAnalysis.model_validate_json(response.text)
+                payload = response.parsed
+            elif response.text:
+                payload = GeminiTutorPayload.model_validate_json(response.text)
+
+            if payload is not None:
+                return TutorAnalysis(
+                    grammar_points=payload.grammar_points,
+                    chunks=payload.chunks,
+                    words=payload.words,
+                    error_message="",
+                )
         except Exception as exc:  # noqa: BLE001
             last_error = f"{model_name}: {exc}"
             continue
 
     return TutorAnalysis(
-        status_message=f"No se pudo conectar con Gemini API ({last_error[:160]})."
+        error_message=f"No se pudo conectar con Gemini API ({last_error[:160]})."
     )
