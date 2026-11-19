@@ -22,9 +22,22 @@ Todo el diseño, la investigación pedagógica y el avance técnico se documenta
 - **OCR Local ($0):** Motor nativo de Windows 11 (`Windows.Media.Ocr`), que además devuelve las coordenadas exactas (*bounding boxes*) de cada palabra.
 - **IA / Análisis lingüístico ($0):** Google Gemini API (tier gratuito via Google AI Studio, SDK `google-genai`).
 
+## 🚀 Cómo ejecutarlo
+1. Creá el entorno virtual e instalá dependencias:
+   ```powershell
+   py -m venv .venv
+   .\.venv\Scripts\pip install -r requirements.txt
+   ```
+2. Copiá `.env.example` a `.env` y pegá tu API key gratuita de [Google AI Studio](https://aistudio.google.com/apikey):
+   ```env
+   GEMINI_API_KEY=tu_api_key_gratis
+   ```
+3. Ejecutá `run.bat` (o `.\.venv\Scripts\python.exe src\main.py`).
+4. Presioná **`Alt + F11`** en cualquier pantalla, arrastrá sobre el texto en inglés y tocá cada palabra para ver su traducción en contexto + tips de lectura.
+
 ## 🗺️ Roadmap
 - [x] **Fase 0:** Investigación pedagógica, definición de UX y documentación inicial.
-- [ ] **Fase 1:** Atajo global + captura de pantalla + overlay fullscreen con fondo desenfocado.
-- [ ] **Fase 2:** Integración de OCR local de Windows con detección de coordenadas por palabra.
-- [ ] **Fase 3:** Interacción palabra por palabra (clic → traducción contextual) + integración con Gemini API gratuita para tips y *chunks*.
+- [x] **Fase 1:** Atajo global (`Alt + F11`) + captura de pantalla + overlay fullscreen con fondo desenfocado.
+- [x] **Fase 2:** Integración de OCR local de Windows (`Windows.Media.Ocr`) con detección de coordenadas por palabra.
+- [x] **Fase 3:** Interacción palabra por palabra (clic → traducción contextual) + integración con Gemini API gratuita para tips y *chunks*.
 - [ ] **Fase 4:** Pulido de UX, configuración de nivel de inglés (A2–C1) y registro opcional de palabras aprendidas.

@@ -23,3 +23,16 @@ Registro paso a paso de decisiones, experimentos, problemas encontrados y soluci
 ### Próximo paso
 - Confirmar el atajo de teclado preferido y la API key gratuita de Google AI Studio.
 - Arrancar **Fase 1**: entorno virtual + prueba de OCR local de Windows + overlay fullscreen con fondo desenfocado.
+
+---
+
+## 2026-11-19 — MVP Completo (Fases 1, 2 y 3)
+
+### Qué construimos
+- **`src/hotkey.py`:** Registro nativo en Windows (`RegisterHotKey`) para **`Alt + F11`** integrado al event loop de Qt (`QAbstractNativeEventFilter`), sin hooks invasivos ni dependencias externas.
+- **`src/capture.py`:** Captura del monitor activo con `mss` + desenfoque rápido (*downscale → GaussianBlur → upscale* + oscurecimiento sutil) para destacar el recorte nítido.
+- **`src/ocr_windows.py`:** Wrapper del motor nativo `Windows.Media.Ocr` via PowerShell/WinRT. Devuelve texto y `BoundingRect` por palabra, con escalado 2x automático para fuentes chicas.
+  - *Hallazgo en pruebas:* Esta PC tenía instalados los paquetes de OCR `es-ES` y `es-MX` (sin `en-US`). El wrapper prioriza `en-*` si está instalado y hace fallback automático al primer idioma latino disponible (`es-ES`), que igualmente reconoce texto en inglés con alta precisión.
+- **`src/ai_tutor.py`:** Cliente `google-genai` con salida estructurada Pydantic (`TutorAnalysis`) que devuelve en **1 sola llamada**: mapa de palabras en contexto (`words`), frases de manual (`chunks`) y 1–3 tips de estructura (`reading_tips`). Incluye modo degradado si todavía no se configuró `GEMINI_API_KEY`.
+- **`src/overlay_ui.py`:** Overlay fullscreen sin bordes respetando DPI (`devicePixelRatio`), recorte nítido sobre fondo desenfocado, hitboxes interactivas sobre cada palabra, tooltip flotante contextual y panel de tips.
+- **`src/main.py` y `run.bat`:** Ejecución discreta en la bandeja del sistema (*system tray*).
