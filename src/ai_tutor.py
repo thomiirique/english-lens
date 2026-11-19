@@ -48,8 +48,12 @@ class GrammarPoint(BaseModel):
             "ej. 'If AI were to evade... it would be sufficient')."
         )
     )
-    concept: str = Field(description="Nombre claro de la regla gramatical (ej. '2do condicional formal (were to)', 'Voz pasiva con modal').")
-    how_to_read: str = Field(description="Explicación práctica en español de CÓMO leer y decodificar esa estructura (1 a 2 líneas).")
+    concept: str = Field(
+        description="Función argumentativa + regla gramatical (ej. 'Hipótesis / 2do condicional (were to)', 'Concesión / Contraste', 'Aclaración causal')."
+    )
+    how_to_read: str = Field(
+        description="Explicación breve en español de qué rol argumentativo cumple esa frase y cómo decodificar su gramática (1 a 2 líneas)."
+    )
 
 
 class LexicalChunk(BaseModel):
@@ -84,10 +88,10 @@ class TutorAnalysis(BaseModel):
     error_message: str = Field(default="")
 
     def lookup_word(self, raw_word: str) -> tuple[Optional[WordTranslation], bool]:
-        """Devuelve (WordTranslation, is_local_basic).
+        """Devuelve (WordTranslation, is_trivial).
 
-        Prioriza la traducción contextual de Gemini y cae al diccionario local
-        si es una palabra básica frecuente.
+        Prioriza la traducción contextual de Gemini (con pista interpretativa) y cae al
+        diccionario local liviano si corresponde.
         """
         target = normalize_token(raw_word)
         if not target:
@@ -99,17 +103,17 @@ class TutorAnalysis(BaseModel):
 
         local = lookup_common_word(raw_word)
         if local is not None:
-            base, translation, pos = local
+            base, translation, pos, tip, is_trivial = local
             return (
                 WordTranslation(
                     word=raw_word,
                     lemma=base,
                     translation=translation,
                     pos=f"{pos} · local",
-                    clue="",
+                    clue=tip,
                     note="",
                 ),
-                True,
+                is_trivial,
             )
 
         return None, False
@@ -173,25 +177,42 @@ def match_pattern_indices(ocr_words: list[str], pattern: str) -> list[int]:
     return matched
 
 
-SYSTEM_PROMPT = """Sos un profesor experto en enseñanza de lectura en inglés para hispanohablantes (Enfoque Léxico + Noticing Hypothesis + Involvement Load).
+def compute_sentence_groups(ocr_words: list[str]) -> list[set[int]]:
+    """Agrupa índices de palabras OCR por oración para activar tips al posarse sobre la frase."""
+    if not ocr_words:
+        return []
+    groups: list[set[int]] = []
+    current: set[int] = set()
+    for i, w in enumerate(ocr_words):
+        current.add(i)
+        stripped = w.strip()
+        if stripped and stripped[-1] in ".!?":
+            groups.append(current)
+            current = set()
+    if current:
+        groups.append(current)
+    return groups
 
-El usuario capturó un fragmento en inglés y quiere ENTENDER CÓMO FUNCIONA LA GRAMÁTICA para poder leerlo solo. NO quiere que le traduzcas el párrafo entero.
+
+SYSTEM_PROMPT = """Sos un profesor experto en lectura comprensiva de inglés para hispanohablantes (Enfoque Léxico + Noticing Hypothesis + Involvement Load).
+
+El usuario capturó un fragmento en inglés y quiere ENTENDER LA ESTRUCTURA ARGUMENTATIVA Y GRAMATICAL por sí mismo, SIN que le traduzcas el párrafo entero.
 
 PRIORIDADES Y REGLAS ESTRICTAS:
 1. NUNCA traduzcas el texto completo ni las oraciones enteras.
-2. PRIORIDAD #1 — `grammar_points` (2 a 4 puntos):
-   Explicá de forma clara, didáctica y práctica las estructuras gramaticales clave:
+2. PRIORIDAD #1 — `grammar_points` (2 a 4 puntos, uno por cada frase/cláusula relevante):
+   Explicá qué rol argumentativo cumple esa frase (tesis, hipótesis, contraste, concesión, evidencia, consecuencia, aclaración) y cómo leer su gramática:
    - Tiempos verbales, condicionales, modales, voz pasiva, inversiones.
    - Orden de palabras distinto al español (ej: cadenas de adjetivos/sustantivos).
-   - Conectores, aclaraciones y cláusulas subordinadas.
-   IMPORTANTE: En `pattern` copiá las palabras EXACTAS tal como aparecen en el texto (si unís dos partes no contiguas usá `...` entre ellas) para poder resaltarlas encima de la captura.
+   - Conectores y cláusulas subordinadas.
+   IMPORTANTE: En `pattern` copiá las palabras EXACTAS tal como aparecen en el texto (podés usar `...` si unís dos partes de la misma oración) para que aparezca JUSTO cuando el usuario se pose sobre esa frase.
 3. PRIORIDAD #2 — `chunks` (0 a 4 bloques):
    Detectá "frases de manual", colocaciones fijas, phrasal verbs o modismos con sus palabras EXACTAS del texto.
-4. PRIORIDAD #3 — `words` (SOLO vocabulario no básico):
-   Omití palabras comunes (pronombres, artículos, preposiciones, verbos básicos).
-   Para cada palabra difícil incluí:
-   - `translation`: traducción exacta al contexto.
-   - `clue`: una micro-pista SIN revelar la palabra exacta en español (ej. "verbo · sinónimo de dodge / raíz de 'evasion'", o "sustantivo · cognado transparente"). Esto entrena la memoria activa.
+4. PRIORIDAD #3 — `words` (vocabulario no elemental):
+   Omití solo artículos/pronombres/preposiciones ultra básicos (`the, a, it, they, is, of, in, to, and`).
+   Para TODA palabra con contenido (sustantivos, verbos, adjetivos, adverbios, conectores) incluí:
+   - `translation`: traducción breve al español en este contexto.
+   - `clue`: SIEMPRE completá un tip interpretativo útil (máx. 14 palabras) SIN decir la traducción literal en español (ej. raíz/cognado, rol en el argumento, prefijo/sufijo, sinónimo simple o pista de contexto) para que el usuario intente deducirla antes de revelar.
 """
 
 

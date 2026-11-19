@@ -69,3 +69,10 @@ Registro paso a paso de decisiones, experimentos, problemas encontrados y soluci
 - **Hook global `WH_KEYBOARD_LL` + instancia única (`src/hotkey.py`, `src/main.py`):**
   - Diagnosticamos que `Ctrl+Alt+E` chocaba con `AltGr (€)` en teclado latino, `F9` podía quedar tomado por procesos duplicados/teclas `Fn` (`error 1409`) y `RegisterHotKey` fallaba cuando había instancias previas.
   - Migramos a un hook de bajo nivel `WH_KEYBOARD_LL` en hilo dedicado con `QueuedConnection` hacia `EnglishLensApp(QObject)` + lock de instancia única (`english_lens.pid`). Atajos activos: **`Ctrl + Shift + Espacio`**, **`Alt + Shift + E`** y **`F8`**.
+
+### UX Progresiva y Tips por palabra antes de traducir
+- **Revelación progresiva de la estructura argumentativa (`src/overlay_ui.py`):**
+  - Apenas termina el OCR + Gemini, el panel se mantiene como una **barra compacta** sin volcar todo el texto de golpe.
+  - Al **posarte sobre cualquier frase** del recorte, se iluminan sus palabras arriba y se despliega **únicamente** la estructura argumentativa/gramatical y *chunks* de esa frase (con botón `📋 Ver todo` opcional si querés ver la lista completa).
+- **Tip interpretativo obligatorio en Modo Desafío (`src/common_words.py`, `src/ai_tutor.py`):**
+  - Agregamos pistas interpretativas (`INTERPRETIVE_TIPS`) también para conectores, modales y palabras frecuentes no triviales (`although`, `however`, `would`, `likely`, `hardly`, `actually`, etc.) y reforzamos el prompt para que Gemini siempre genere `clue` sin spoilear la traducción. Solo artículos/pronombres triviales (`the, a, it, is...`) se muestran directo.

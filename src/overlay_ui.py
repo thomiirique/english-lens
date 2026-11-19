@@ -1,4 +1,4 @@
-"""Overlay fullscreen con desenfoque, Visual Noticing de gramática y práctica activa."""
+"""Overlay fullscreen con desenfoque, Visual Noticing progresivo por frase y tips antes de traducir."""
 
 from __future__ import annotations
 
@@ -19,10 +19,13 @@ from PySide6.QtWidgets import (
 )
 
 from ai_tutor import (
+    GrammarPoint,
+    LexicalChunk,
     TutorAnalysis,
     WordTranslation,
     analyze_text_with_gemini,
     check_user_comprehension,
+    compute_sentence_groups,
     match_pattern_indices,
 )
 from capture import ScreenCapture
@@ -87,7 +90,7 @@ class ComprehensionWorker(QThread):
 
 
 class WordTooltipCard(QFrame):
-    """Tarjetita flotante con soporte de Modo Desafío (pista previa → revelar español)."""
+    """Tarjetita flotante con soporte de Modo Desafío (tip interpretativo → revelar español)."""
 
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
@@ -143,7 +146,7 @@ class WordTooltipCard(QFrame):
         layout.addWidget(self.main_label)
         layout.addWidget(self.meta_label)
         layout.addWidget(self.reveal_btn)
-        self.setMaximumWidth(340)
+        self.setMaximumWidth(350)
         self.hide()
 
         self._anchor_rect = QRectF()
@@ -172,7 +175,7 @@ class WordTooltipCard(QFrame):
         reveal_meta: str,
         anchor_rect: QRectF,
     ) -> None:
-        """Muestra primero una pista cognitiva para activar Retrieval Practice."""
+        """Muestra primero un tip interpretativo para deducir la palabra antes de traducirla."""
         self._is_hidden_answer = True
         self._anchor_rect = anchor_rect
         self._pending_reveal_title = reveal_title
@@ -180,9 +183,9 @@ class WordTooltipCard(QFrame):
         self._pending_reveal_meta = reveal_meta
 
         self.title_label.setText(f"🧠 {title}")
-        self.main_label.setText(f"Pista: {clue}")
+        self.main_label.setText(f"Tip: {clue}")
         self.main_label.setStyleSheet("color: #fde68a;")
-        self.meta_label.setText("Intentá deducirla antes de revelar")
+        self.meta_label.setText("Intentá interpretarla antes de revelar")
         self.meta_label.show()
         self.reveal_btn.show()
         self._place_near(anchor_rect)
@@ -219,15 +222,22 @@ class WordTooltipCard(QFrame):
 
 
 class InteractiveInsightCard(QFrame):
-    """Tarjeta de gramática o chunk que al pasar el mouse o hacer clic ilumina el texto arriba."""
+    """Tarjeta de estructura argumentativa/gramatical o chunk con soporte hover/pin."""
 
     hovered_changed = Signal(object, str, bool)  # indices: list[int], kind: str, entering: bool
     pin_toggled = Signal(object, object, str)    # card: self, indices: list[int], kind: str
 
-    def __init__(self, html_text: str, word_indices: list[int], kind: str, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        html_text: str,
+        word_indices: list[int],
+        kind: str,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
-        self._word_indices = word_indices
-        self._kind = kind  # "grammar" | "chunk"
+        self.word_indices = word_indices
+        self.word_index_set = set(word_indices)
+        self.kind = kind  # "grammar" | "chunk"
         self._pinned = False
 
         self.setCursor(
@@ -250,56 +260,64 @@ class InteractiveInsightCard(QFrame):
         self._apply_style(hovered=False)
 
     def _apply_style(self, hovered: bool) -> None:
-        accent = "52, 211, 153" if self._kind == "grammar" else "167, 139, 250"
+        accent = "52, 211, 153" if self.kind == "grammar" else "167, 139, 250"
         if self._pinned:
             self.setStyleSheet(
                 f"InteractiveInsightCard {{ background-color: rgba({accent}, 0.18); "
                 f"border: 1px solid rgba({accent}, 0.85); border-radius: 8px; }}"
             )
-        elif hovered and self._word_indices:
+        elif hovered and self.word_indices:
             self.setStyleSheet(
                 f"InteractiveInsightCard {{ background-color: rgba({accent}, 0.11); "
                 f"border: 1px solid rgba({accent}, 0.5); border-radius: 8px; }}"
             )
         else:
             self.setStyleSheet(
-                "InteractiveInsightCard { background-color: rgba(30, 41, 59, 0.55); "
-                "border: 1px solid rgba(148, 163, 184, 0.18); border-radius: 8px; }"
+                "InteractiveInsightCard { background-color: rgba(30, 41, 59, 0.58); "
+                "border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 8px; }"
             )
 
     def enterEvent(self, event) -> None:
         self._apply_style(hovered=True)
-        if self._word_indices:
-            self.hovered_changed.emit(self._word_indices, self._kind, True)
+        if self.word_indices:
+            self.hovered_changed.emit(self.word_indices, self.kind, True)
         super().enterEvent(event)
 
     def leaveEvent(self, event) -> None:
         self._apply_style(hovered=False)
-        if self._word_indices:
-            self.hovered_changed.emit(self._word_indices, self._kind, False)
+        if self.word_indices:
+            self.hovered_changed.emit(self.word_indices, self.kind, False)
         super().leaveEvent(event)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
-        if event.button() == Qt.MouseButton.LeftButton and self._word_indices:
-            self.pin_toggled.emit(self, self._word_indices, self._kind)
+        if event.button() == Qt.MouseButton.LeftButton and self.word_indices:
+            self.pin_toggled.emit(self, self.word_indices, self.kind)
         super().mousePressEvent(event)
 
 
 class TipsPanel(QFrame):
-    """Panel flotante con Visual Noticing, Modo Desafío y Check de comprensión."""
+    """Panel progresivo: barra compacta por defecto; despliega la estructura de la frase al posarte sobre ella."""
 
     close_requested = Signal()
     recapture_requested = Signal()
     challenge_mode_changed = Signal(bool)
+    show_all_changed = Signal(bool)
     highlight_hover_changed = Signal(object, str, bool)
     highlight_pinned = Signal(object, str)
     comprehension_submitted = Signal(str)
 
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
+        self._grammar_items: list[tuple[GrammarPoint, list[int]]] = []
+        self._chunk_items: list[tuple[LexicalChunk, list[int]]] = []
+        self._sentence_groups: list[set[int]] = []
         self._cards: list[InteractiveInsightCard] = []
         self._pinned_card: Optional[InteractiveInsightCard] = None
+        self._active_word_filter: int = -1
+
         self._challenge_mode = True
+        self._show_all = False
+        self._has_analysis = False
         self._drag_offset: Optional[QPoint] = None
         self._manually_moved = False
 
@@ -320,8 +338,8 @@ class TipsPanel(QFrame):
                 color: #f8fafc;
                 border: 1px solid rgba(148, 163, 184, 0.3);
                 border-radius: 7px;
-                padding: 5px 10px;
-                font-size: 12px;
+                padding: 4px 9px;
+                font-size: 11.5px;
             }
             QPushButton:hover {
                 background-color: rgba(56, 189, 248, 0.28);
@@ -346,20 +364,26 @@ class TipsPanel(QFrame):
         )
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(16, 12, 16, 14)
-        outer.setSpacing(8)
+        outer.setContentsMargins(14, 10, 14, 12)
+        outer.setSpacing(7)
 
         header = QHBoxLayout()
+        header.setSpacing(6)
         self.header_title = QLabel("🔍 English Lens")
-        self.header_title.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
+        self.header_title.setFont(QFont("Segoe UI", 10.5, QFont.Weight.Bold))
         self.header_title.setStyleSheet("color: #38bdf8;")
 
         self.challenge_btn = QPushButton("🧠 Desafío: ON")
         self.challenge_btn.setToolTip(
-            "Cuando está activo, al tocar una palabra difícil te da primero una pista para entrenar la memoria"
+            "Cuando está activo, al tocar una palabra te tira un tip primero antes de mostrar el español"
         )
         self.challenge_btn.clicked.connect(self._toggle_challenge_mode)
         self._update_challenge_btn_style()
+
+        self.show_all_btn = QPushButton("📋 Ver todo")
+        self.show_all_btn.setToolTip("Expandir todas las estructuras gramaticales y chunks a la vez")
+        self.show_all_btn.clicked.connect(self._toggle_show_all)
+        self.show_all_btn.hide()
 
         self.recapture_btn = QPushButton("Nuevo recorte")
         self.recapture_btn.clicked.connect(self.recapture_requested.emit)
@@ -370,25 +394,27 @@ class TipsPanel(QFrame):
         header.addWidget(self.header_title)
         header.addStretch()
         header.addWidget(self.challenge_btn)
+        header.addWidget(self.show_all_btn)
         header.addWidget(self.recapture_btn)
         header.addWidget(self.close_btn)
         outer.addLayout(header)
 
         self.status_label = QLabel("Analizando texto...")
-        self.status_label.setFont(QFont("Segoe UI", 10))
+        self.status_label.setFont(QFont("Segoe UI", 9.5))
         self.status_label.setStyleSheet("color: #94a3b8;")
         self.status_label.setWordWrap(True)
         outer.addWidget(self.status_label)
 
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
-        self.scroll.setMaximumHeight(310)
+        self.scroll.setMaximumHeight(280)
         self.content_widget = QWidget()
         self.content_widget.setStyleSheet("background: transparent;")
         self.content_layout = QVBoxLayout(self.content_widget)
         self.content_layout.setContentsMargins(0, 2, 0, 2)
-        self.content_layout.setSpacing(7)
+        self.content_layout.setSpacing(6)
         self.scroll.setWidget(self.content_widget)
+        self.scroll.hide()
         outer.addWidget(self.scroll)
 
         # Sección de Retrieval Practice ("¿Entendí bien?")
@@ -432,6 +458,9 @@ class TipsPanel(QFrame):
     def is_challenge_mode(self) -> bool:
         return self._challenge_mode
 
+    def is_show_all(self) -> bool:
+        return self._show_all
+
     def is_typing_summary(self) -> bool:
         return self.summary_input.hasFocus()
 
@@ -470,16 +499,33 @@ class TipsPanel(QFrame):
         self._update_challenge_btn_style()
         self.challenge_mode_changed.emit(self._challenge_mode)
 
+    def _toggle_show_all(self) -> None:
+        self._show_all = not self._show_all
+        self._update_show_all_btn_style()
+        self._render_cards_for_context(self._active_word_filter)
+        self.show_all_changed.emit(self._show_all)
+
     def _update_challenge_btn_style(self) -> None:
         if self._challenge_mode:
             self.challenge_btn.setText("🧠 Desafío: ON")
             self.challenge_btn.setStyleSheet(
                 "background-color: rgba(52, 211, 153, 0.2); color: #34d399; "
-                "border: 1px solid rgba(52, 211, 153, 0.65); border-radius: 7px; padding: 5px 10px; font-size: 12px;"
+                "border: 1px solid rgba(52, 211, 153, 0.65); border-radius: 7px; padding: 4px 9px; font-size: 11.5px;"
             )
         else:
             self.challenge_btn.setText("🧠 Desafío: OFF")
             self.challenge_btn.setStyleSheet("")
+
+    def _update_show_all_btn_style(self) -> None:
+        if self._show_all:
+            self.show_all_btn.setText("📋 Ocultar lista")
+            self.show_all_btn.setStyleSheet(
+                "background-color: rgba(56, 189, 248, 0.22); color: #38bdf8; "
+                "border: 1px solid rgba(56, 189, 248, 0.65); border-radius: 7px; padding: 4px 9px; font-size: 11.5px;"
+            )
+        else:
+            self.show_all_btn.setText("📋 Ver todo")
+            self.show_all_btn.setStyleSheet("")
 
     def _toggle_check_box(self) -> None:
         visible = not self.check_container.isVisible()
@@ -507,7 +553,7 @@ class TipsPanel(QFrame):
         self.feedback_label.show()
         self.adjustSize()
 
-    def _clear_content(self) -> None:
+    def _clear_cards(self) -> None:
         self._cards.clear()
         self._pinned_card = None
         while self.content_layout.count():
@@ -517,10 +563,18 @@ class TipsPanel(QFrame):
                 w.deleteLater()
 
     def set_loading(self, message: str) -> None:
-        self._clear_content()
+        self._has_analysis = False
+        self._grammar_items.clear()
+        self._chunk_items.clear()
+        self._sentence_groups.clear()
+        self._active_word_filter = -1
+        self._show_all = False
+        self._update_show_all_btn_style()
+        self._clear_cards()
         self.status_label.setText(message)
         self.status_label.setStyleSheet("color: #94a3b8;")
         self.status_label.show()
+        self.show_all_btn.hide()
         self.scroll.hide()
         self.check_toggle_btn.hide()
         self.check_container.hide()
@@ -542,40 +596,134 @@ class TipsPanel(QFrame):
         card.set_pinned(True)
         self.highlight_pinned.emit(indices, kind)
 
-    def show_analysis(
+    def load_analysis(
         self,
         analysis: TutorAnalysis,
         ocr_tokens: list[str],
         ocr_lang: str,
     ) -> list[tuple[set[int], str]]:
-        """Renderiza tarjetas interactivas y devuelve los grupos resaltables para el overlay."""
-        self._clear_content()
+        """Guarda las estructuras detectadas sin mostrar todo de golpe."""
+        self._has_analysis = True
+        self._grammar_items.clear()
+        self._chunk_items.clear()
+        self._sentence_groups = compute_sentence_groups(ocr_tokens)
+        self._active_word_filter = -1
         all_spans: list[tuple[set[int], str]] = []
+
+        for gp in analysis.grammar_points:
+            indices = match_pattern_indices(ocr_tokens, gp.pattern)
+            self._grammar_items.append((gp, indices))
+            if indices:
+                all_spans.append((set(indices), "grammar"))
+
+        for chunk in analysis.chunks:
+            indices = match_pattern_indices(ocr_tokens, chunk.phrase)
+            self._chunk_items.append((chunk, indices))
+            if indices:
+                all_spans.append((set(indices), "chunk"))
 
         if analysis.error_message:
             self.status_label.setText(analysis.error_message)
             self.status_label.setStyleSheet("color: #fbbf24;")
-            self.status_label.show()
+            self.show_all_btn.hide()
+            self.check_toggle_btn.hide()
         else:
+            g_count = len(self._grammar_items)
+            c_count = len(self._chunk_items)
             self.status_label.setText(
-                f"Pasá el mouse por una regla para verla arriba · Tocá cualquier palabra ({len(ocr_tokens)} palabras · OCR: {ocr_lang})"
+                f"Posate sobre una frase subrayada para ver su estructura ({g_count} reglas · {c_count} chunks) · "
+                f"Tocá una palabra para ver su tip ({ocr_lang})"
             )
             self.status_label.setStyleSheet("color: #94a3b8;")
-            self.status_label.show()
+            self.show_all_btn.setVisible(bool(g_count or c_count))
+            self.check_toggle_btn.show()
+
+        self._render_cards_for_context(-1)
+        return all_spans
+
+    def update_for_hovered_word(self, word_index: int) -> tuple[set[int], str]:
+        """Actualiza el panel según la frase bajo el cursor y devuelve los índices a iluminar arriba."""
+        if not self._has_analysis:
+            return set(), ""
+        if word_index == self._active_word_filter:
+            return self._matching_highlight_for_word(word_index)
+
+        self._active_word_filter = word_index
+        if not self._show_all:
+            self._render_cards_for_context(word_index)
+        return self._matching_highlight_for_word(word_index)
+
+    def _sentence_for_word(self, word_index: int) -> set[int]:
+        for group in self._sentence_groups:
+            if word_index in group:
+                return group
+        return set()
+
+    def _select_items_for_word(
+        self,
+        word_index: int,
+    ) -> tuple[list[tuple[GrammarPoint, list[int]]], list[tuple[LexicalChunk, list[int]]]]:
+        if self._show_all:
+            return self._grammar_items, self._chunk_items
+        if word_index < 0:
+            return [], []
+
+        sentence_set = self._sentence_for_word(word_index)
+
+        # Prioridad 1: estructuras/chunks que contienen exactamente la palabra bajo el mouse
+        direct_g = [(gp, idx) for gp, idx in self._grammar_items if word_index in idx]
+        direct_c = [(ch, idx) for ch, idx in self._chunk_items if word_index in idx]
+
+        # Si tocó la misma oración de una estructura/chunk aunque no la palabra exacta, mostrar los de esa frase
+        if not direct_g and sentence_set:
+            direct_g = [
+                (gp, idx) for gp, idx in self._grammar_items if any(i in sentence_set for i in idx)
+            ]
+        if not direct_c and sentence_set:
+            direct_c = [
+                (ch, idx) for ch, idx in self._chunk_items if any(i in sentence_set for i in idx)
+            ]
+        return direct_g, direct_c
+
+    def _matching_highlight_for_word(self, word_index: int) -> tuple[set[int], str]:
+        if word_index < 0:
+            return set(), ""
+        matched_g, matched_c = self._select_items_for_word(word_index)
+
+        # Si el cursor está justo encima de un chunk, priorizamos el violeta del chunk; si no, verde de gramática
+        for _, idx in matched_c:
+            if word_index in idx:
+                return set(idx), "chunk"
+        for _, idx in matched_g:
+            if word_index in idx:
+                return set(idx), "grammar"
+
+        combined_g: set[int] = set()
+        for _, idx in matched_g:
+            combined_g.update(idx)
+        if combined_g:
+            return combined_g, "grammar"
+
+        combined_c: set[int] = set()
+        for _, idx in matched_c:
+            combined_c.update(idx)
+        if combined_c:
+            return combined_c, "chunk"
+        return set(), ""
+
+    def _render_cards_for_context(self, word_index: int) -> None:
+        self._clear_cards()
+        g_items, c_items = self._select_items_for_word(word_index)
 
         has_blocks = False
-
-        if analysis.grammar_points:
+        if g_items:
             has_blocks = True
-            gram_title = QLabel("📐 Cómo leer la gramática (señalá una tarjeta para verla en el texto)")
-            gram_title.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+            gram_title = QLabel("📐 Estructura argumentativa y gramática")
+            gram_title.setFont(QFont("Segoe UI", 9.5, QFont.Weight.Bold))
             gram_title.setStyleSheet("color: #34d399;")
             self.content_layout.addWidget(gram_title)
 
-            for gp in analysis.grammar_points:
-                indices = match_pattern_indices(ocr_tokens, gp.pattern)
-                if indices:
-                    all_spans.append((set(indices), "grammar"))
+            for gp, indices in g_items:
                 html = (
                     f"<b style='color:#f8fafc;'>“{gp.pattern}”</b> "
                     f"<span style='color:#34d399;'>[{gp.concept}]</span><br>"
@@ -587,17 +735,14 @@ class TipsPanel(QFrame):
                 self._cards.append(card)
                 self.content_layout.addWidget(card)
 
-        if analysis.chunks:
+        if c_items:
             has_blocks = True
             sec_title = QLabel("🧩 Frases de manual / Chunks")
-            sec_title.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+            sec_title.setFont(QFont("Segoe UI", 9.5, QFont.Weight.Bold))
             sec_title.setStyleSheet("color: #a78bfa;")
             self.content_layout.addWidget(sec_title)
 
-            for chunk in analysis.chunks:
-                indices = match_pattern_indices(ocr_tokens, chunk.phrase)
-                if indices:
-                    all_spans.append((set(indices), "chunk"))
+            for chunk, indices in c_items:
                 html = (
                     f"<b style='color:#f8fafc;'>“{chunk.phrase}”</b> → "
                     f"<span style='color:#38bdf8;'>{chunk.meaning}</span><br>"
@@ -610,13 +755,11 @@ class TipsPanel(QFrame):
                 self.content_layout.addWidget(card)
 
         self.scroll.setVisible(has_blocks)
-        self.check_toggle_btn.setVisible(not analysis.error_message)
         self.adjustSize()
-        return all_spans
 
 
 class LensOverlay(QWidget):
-    """Ventana fullscreen con desenfoque al soltar, Visual Noticing y Modo Desafío."""
+    """Ventana fullscreen con desenfoque al soltar, Visual Noticing progresivo y tips por palabra."""
 
     closed = Signal()
 
@@ -633,10 +776,11 @@ class LensOverlay(QWidget):
         self._hovered_index: int = -1
         self._selected_index: int = -1
 
-        # Visual Noticing: resaltado de gramática y chunks encima del texto
+        # Visual Noticing: subrayado sobre la captura + foco progresivo al posarse en la frase
         self._grammar_indices: set[int] = set()
         self._chunk_indices: set[int] = set()
-        self._hover_highlight: tuple[set[int], str] = (set(), "")
+        self._phrase_hover_highlight: tuple[set[int], str] = (set(), "")
+        self._card_hover_highlight: tuple[set[int], str] = (set(), "")
         self._pinned_highlight: tuple[set[int], str] = (set(), "")
 
         self._ocr_worker: Optional[OcrWorker] = None
@@ -683,18 +827,22 @@ class LensOverlay(QWidget):
         self._tips_panel = TipsPanel(self)
         self._tips_panel.close_requested.connect(self.close)
         self._tips_panel.recapture_requested.connect(self._reset_to_selection)
-        self._tips_panel.highlight_hover_changed.connect(self._on_highlight_hover)
+        self._tips_panel.highlight_hover_changed.connect(self._on_card_highlight_hover)
         self._tips_panel.highlight_pinned.connect(self._on_highlight_pinned)
         self._tips_panel.comprehension_submitted.connect(self._on_comprehension_submitted)
         self._tips_panel.challenge_mode_changed.connect(self._on_challenge_mode_changed)
+        self._tips_panel.show_all_changed.connect(self._on_show_all_changed)
 
-    def _on_highlight_hover(self, indices: list[int], kind: str, entering: bool) -> None:
-        self._hover_highlight = (set(indices), kind) if entering else (set(), "")
+    def _on_card_highlight_hover(self, indices: list[int], kind: str, entering: bool) -> None:
+        self._card_hover_highlight = (set(indices), kind) if entering else (set(), "")
         self.update()
 
     def _on_highlight_pinned(self, indices: list[int], kind: str) -> None:
         self._pinned_highlight = (set(indices), kind) if indices else (set(), "")
         self.update()
+
+    def _on_show_all_changed(self, _show_all: bool) -> None:
+        self._position_tips_panel()
 
     def _on_challenge_mode_changed(self, _enabled: bool) -> None:
         if self._selected_index != -1 and self._tooltip.isVisible():
@@ -722,7 +870,8 @@ class LensOverlay(QWidget):
         self._selected_index = -1
         self._grammar_indices.clear()
         self._chunk_indices.clear()
-        self._hover_highlight = (set(), "")
+        self._phrase_hover_highlight = (set(), "")
+        self._card_hover_highlight = (set(), "")
         self._pinned_highlight = (set(), "")
         self._tooltip.hide()
         self._tips_panel.hide()
@@ -750,7 +899,6 @@ class LensOverlay(QWidget):
         space_left = max(0, sel.left() - gap - margin)
         space_right = max(0, (pw - margin) - (sel.right() + gap))
 
-        # Evaluar las 4 direcciones con sus dimensiones máximas disponibles
         candidates = [
             ("below", pw - 2 * margin, space_below),
             ("above", pw - 2 * margin, space_above),
@@ -758,24 +906,21 @@ class LensOverlay(QWidget):
             ("left", space_left, ph - 2 * margin),
         ]
 
-        def score(item: tuple[str, int, int]) -> tuple[int, int, int]:
+        def score(item: tuple[str, int, int]) -> tuple[int, int, int, int]:
             side, avail_w, avail_h = item
-            # Prioridad 1: que entre cómodo sin apretarse (ancho >= 360 y alto >= 170)
-            fits_comfortably = int(avail_w >= 360 and avail_h >= 170)
-            # Prioridad 2: leve preferencia por arriba/abajo si tienen buen alto (>= 250) para leer ancho cómodo
-            wide_bonus = int(side in ("above", "below") and avail_h >= 250 and avail_w >= 520)
+            fits_expanded = int(avail_w >= 380 and avail_h >= 240)
+            fits_compact = int(avail_w >= 360 and avail_h >= 150)
+            wide_bonus = int(side in ("above", "below") and avail_h >= 240 and avail_w >= 520)
             usable_area = min(avail_w, 660) * min(avail_h, 460)
-            return (fits_comfortably, wide_bonus, usable_area)
+            return (fits_expanded, fits_compact, wide_bonus, usable_area)
 
         best_side, best_w, best_h = max(candidates, key=score)
 
-        # Ajustar ancho y alto máximo del scroll para que NUNCA pise el recorte seleccionado
         target_w = max(340, min(640, best_w))
         self._tips_panel.setFixedWidth(target_w)
 
-        # Estimar altura fija fuera del scroll y garantizar que no exceda best_h
         chrome_h = 145 if self._tips_panel.check_container.isVisible() else 108
-        max_scroll_h = max(80, min(330, best_h - chrome_h))
+        max_scroll_h = max(80, min(320, best_h - chrome_h))
         self._tips_panel.scroll.setMaximumHeight(max_scroll_h)
         self._tips_panel.adjustSize()
         if self._tips_panel.height() > best_h:
@@ -795,7 +940,7 @@ class LensOverlay(QWidget):
         elif best_side == "right":
             x = sel.right() + gap
             y = int(sel.center().y() - panel_h / 2)
-        else:  # left
+        else:
             x = sel.left() - gap - panel_w
             y = int(sel.center().y() - panel_h / 2)
 
@@ -859,6 +1004,17 @@ class LensOverlay(QWidget):
                 self.setCursor(
                     Qt.CursorShape.PointingHandCursor if idx != -1 else Qt.CursorShape.ArrowCursor
                 )
+                # Si el mouse salió hacia el panel mismo, mantenemos lo mostrado para poder interactuar
+                if idx != -1 or not self._tips_panel.geometry().contains(pos):
+                    prev_scroll = self._tips_panel.scroll.isVisible()
+                    prev_h = self._tips_panel.height()
+                    hi_indices, hi_kind = self._tips_panel.update_for_hovered_word(idx)
+                    self._phrase_hover_highlight = (hi_indices, hi_kind)
+                    if (
+                        prev_scroll != self._tips_panel.scroll.isVisible()
+                        or abs(prev_h - self._tips_panel.height()) > 6
+                    ):
+                        self._position_tips_panel()
                 self.update()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
@@ -924,7 +1080,7 @@ class LensOverlay(QWidget):
             return
 
         self._tips_panel.set_loading(
-            f"OCR listo ({len(result.words)} palabras). Analizando gramática y pistas con Gemini..."
+            f"OCR listo ({len(result.words)} palabras). Analizando estructura argumentativa y tips..."
         )
         self._position_tips_panel()
 
@@ -940,7 +1096,7 @@ class LensOverlay(QWidget):
         self._analysis = analysis
         ocr_tokens = [w.text for w, _ in self._word_rects]
         ocr_lang = self._ocr_result.language_tag if self._ocr_result else "?"
-        spans = self._tips_panel.show_analysis(analysis, ocr_tokens, ocr_lang)
+        spans = self._tips_panel.load_analysis(analysis, ocr_tokens, ocr_lang)
 
         self._grammar_indices.clear()
         self._chunk_indices.clear()
@@ -978,29 +1134,39 @@ class LensOverlay(QWidget):
 
     def _show_word_popup(self, index: int) -> None:
         word, rect = self._word_rects[index]
+        challenge_on = self._tips_panel.is_challenge_mode()
+
         if self._analysis is None:
             local = lookup_common_word(word.text)
             if local is not None:
-                base, tr, pos = local
-                title = f"{word.text}  ({base})" if base != word.text.lower().strip(".,;:!?\"'()") else word.text
-                self._tooltip.show_instant(title, tr, f"{pos} · diccionario local", rect)
+                base, tr, pos, tip, is_trivial = local
+                title = (
+                    f"{word.text}  ({base})"
+                    if base != word.text.lower().strip(".,;:!?\"'()")
+                    else word.text
+                )
+                if challenge_on and not is_trivial and tip:
+                    self._tooltip.show_challenge(
+                        word.text, tip, title, tr, f"{pos} · diccionario local", rect
+                    )
+                else:
+                    self._tooltip.show_instant(title, tr, f"{pos} · diccionario local", rect)
             else:
                 self._tooltip.show_instant(word.text, "Analizando contexto...", "", rect)
             return
 
-        entry, is_local = self._analysis.lookup_word(word.text)
+        entry, is_trivial = self._analysis.lookup_word(word.text)
         chunks = self._analysis.find_chunks_for_word(word.text)
 
         if entry is not None:
             title, meta = self._build_entry_details(entry, chunks)
-            if (
-                not is_local
-                and self._tips_panel.is_challenge_mode()
-                and entry.clue.strip()
-            ):
+            if challenge_on and not is_trivial:
+                tip = entry.clue.strip() or (
+                    f"({entry.pos}) Mirá su posición en la frase y las palabras vecinas para deducirla."
+                )
                 self._tooltip.show_challenge(
                     word.text,
-                    entry.clue,
+                    tip,
                     title,
                     entry.translation,
                     meta,
@@ -1010,11 +1176,27 @@ class LensOverlay(QWidget):
                 self._tooltip.show_instant(title, entry.translation, meta, rect)
         elif chunks:
             chunk_txt = " / ".join(f"“{c.phrase}” → {c.meaning}" for c in chunks)
-            self._tooltip.show_instant(word.text, chunk_txt, "parte de una frase de manual", rect)
+            if challenge_on:
+                tip = chunks[0].tip or "Forma parte de una frase hecha: leé las palabras vecinas como bloque."
+                self._tooltip.show_challenge(
+                    word.text,
+                    tip,
+                    word.text,
+                    chunk_txt,
+                    "parte de una frase de manual",
+                    rect,
+                )
+            else:
+                self._tooltip.show_instant(word.text, chunk_txt, "parte de una frase de manual", rect)
         elif self._analysis.error_message:
             self._tooltip.show_instant(word.text, "Sin conexión con Gemini", self._analysis.error_message, rect)
         else:
-            self._tooltip.show_instant(word.text, "Palabra transparente / cognado", "", rect)
+            self._tooltip.show_instant(
+                word.text,
+                "Término o cognado transparente — fijate en su parecido al español y rol en la oración.",
+                "",
+                rect,
+            )
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
@@ -1038,11 +1220,15 @@ class LensOverlay(QWidget):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRoundedRect(self._selection_rect, 4, 4)
 
-        # 3. Cajas interactivas + Visual Noticing (gramática y chunks sobre el texto)
+        # 3. Cajas interactivas + Visual Noticing progresivo sobre la captura
         if self._state == "reading" and self._word_rects:
-            active_indices, active_kind = (
-                self._hover_highlight if self._hover_highlight[0] else self._pinned_highlight
-            )
+            if self._card_hover_highlight[0]:
+                active_indices, active_kind = self._card_hover_highlight
+            elif self._phrase_hover_highlight[0]:
+                active_indices, active_kind = self._phrase_hover_highlight
+            else:
+                active_indices, active_kind = self._pinned_highlight
+
             active_color = QColor("#34d399") if active_kind == "grammar" else QColor("#a78bfa")
 
             for i, (_, rect) in enumerate(self._word_rects):
@@ -1050,11 +1236,10 @@ class LensOverlay(QWidget):
 
                 if is_active_notice:
                     fill = QColor(active_color)
-                    fill.setAlpha(68)
-                    painter.setPen(QPen(active_color, 1.8))
+                    fill.setAlpha(55)
+                    painter.setPen(QPen(active_color, 1.5))
                     painter.setBrush(fill)
                     painter.drawRoundedRect(rect, 3, 3)
-                    # Subrayado grueso debajo de la palabra para marcar la estructura
                     painter.setPen(QPen(active_color, 2.6))
                     painter.drawLine(
                         int(rect.left() + 1),
@@ -1071,11 +1256,10 @@ class LensOverlay(QWidget):
                     painter.setBrush(QColor(56, 189, 248, 38))
                     painter.drawRoundedRect(rect, 3, 3)
                 else:
-                    painter.setPen(QPen(QColor(56, 189, 248, 45), 1))
+                    painter.setPen(QPen(QColor(56, 189, 248, 35), 1))
                     painter.setBrush(Qt.BrushStyle.NoBrush)
                     painter.drawRoundedRect(rect, 3, 3)
 
-                # Subrayado sutil permanente (Visual Noticing pasivo) cuando no hay foco activo
                 if not is_active_notice:
                     if i in self._grammar_indices:
                         painter.setPen(QPen(QColor(52, 211, 153, 185), 1.8))

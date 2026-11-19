@@ -583,49 +583,103 @@ def _clean(word: str) -> str:
     return re.sub(r"^[^a-zA-Z0-9']+|[^a-zA-Z0-9']+$", "", word).lower()
 
 
-def lookup_common_word(raw_word: str) -> Optional[tuple[str, str, str]]:
+# Palabras tan elementales que no necesitan modo desafío (se muestran directo)
+TRIVIAL_WORDS: set[str] = {
+    "i", "you", "he", "she", "it", "we", "they", "me", "him", "her", "us", "them",
+    "my", "your", "his", "its", "our", "their",
+    "the", "a", "an", "this", "that", "these", "those",
+    "in", "on", "at", "to", "for", "of", "from", "with", "by",
+    "and", "or", "but", "not", "no", "yes",
+    "be", "am", "is", "are", "was", "were", "have", "has", "had", "do", "does", "did",
+    "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "zero",
+}
+
+# Pistas interpretativas para conectores, modales y palabras frecuentes con matiz
+INTERPRETIVE_TIPS: dict[str, str] = {
+    "although": "Conector concesivo: introduce una objeción antes de dar el punto principal.",
+    "though": "Marca contraste o concesión (como 'aunque'); al final de frase equivale a 'sin embargo'.",
+    "however": "Giro argumentativo: lo que sigue contradice o matiza la oración anterior.",
+    "unless": "Condicional negativo: lo que sigue es la única excepción para que algo ocurra.",
+    "whether": "Introduce una duda o dos alternativas posibles.",
+    "while": "Puede indicar tiempo simultáneo o contraste entre dos ideas.",
+    "since": "Según el contexto: punto de partida en el tiempo o causa ('ya que').",
+    "despite": "Preposición de contraste: algo pasa igual, sin que el obstáculo lo frene.",
+    "therefore": "Marca consecuencia lógica o conclusión de lo anterior.",
+    "thus": "Conector formal que introduce resultado o manera ('de este modo').",
+    "yet": "Al inicio/medio suele girar el argumento ('sin embargo'); en negaciones significa 'todavía'.",
+    "instead": "Indica reemplazo o alternativa frente a la opción anterior.",
+    "rather": "Señala preferencia o matiz ('más bien' / 'bastante').",
+    "would": "Verbo modal: proyecta una situación hipotética (-ría) o hábito pasado.",
+    "could": "Modal de posibilidad o capacidad en pasado/condicional.",
+    "should": "Modal de recomendación, deber o expectativa lógica.",
+    "might": "Modal de posibilidad baja o duda ('tal vez').",
+    "may": "Modal de posibilidad formal o permiso.",
+    "must": "Obligación fuerte o deducción muy segura.",
+    "likely": "Adjetivo/adverbio de probabilidad (viene de 'similar/probable', no de 'gustar').",
+    "unlikely": "Prefijo 'un-' (negación) + 'likely' (probable).",
+    "enough": "Indica suficiencia; ojo que va DESPUÉS de adjetivos ('strong enough').",
+    "almost": "Aproximación: está muy cerca de cumplirse, pero no del todo.",
+    "hardly": "Cuidado: tiene sentido casi NEGATIVO ('apenas / casi no'), no viene de 'duro'.",
+    "actually": "⚠️ Falso amigo: NO es 'actualmente', habla de la realidad efectiva de algo.",
+    "left": "Según el lugar en la frase: pasado de 'leave' (dejar/quedar) o dirección contraria a 'right'.",
+    "even": "Enfatiza algo sorprendente o extremo ('incluso' / 'ni siquiera').",
+    "still": "Indica continuidad hasta ahora, o contraste ('aun así').",
+    "already": "Indica que algo pasó antes de lo esperado.",
+    "own": "Refuerza pertenencia ('propio') o posesión como verbo ('poseer').",
+    "such": "Señala intensidad o ejemplificación ('tal / tales / tan').",
+    "each": "Apunta a cada elemento tomado de forma individual.",
+    "several": "Cantidad intermedia: más que 'a few', menos que 'many'.",
+    "certain": "Puede indicar seguridad o algo específico pero no nombrado.",
+    "point": "Según contexto: idea central de un argumento, lugar exacto o verbo 'señalar'.",
+    "fact": "Se refiere a algo comprobado o real (usado en 'in fact').",
+    "mean": "Como verbo: tener un significado o intención; como adjetivo: cruel/tacaño.",
+    "remain": "Indica que algo sigue igual sin cambiar de estado.",
+    "avoid": "Acción de mantenerse lejos de algo para que no pase.",
+    "prevent": "⚠️ Cuidado: significa impedir que algo ocurra (más fuerte que solo 'prevenir').",
+    "provide": "Acción de dar o suministrar algo necesario.",
+    "require": "Algo que es necesario o exigido como condición.",
+    "suggest": "Proponer una idea o dar a entender algo indirectamente.",
+    "cause": "Lo que origina un efecto, o el verbo que lo provoca.",
+    "increase": "Subir en cantidad o intensidad (opuesto a 'reduce').",
+    "support": "Sostener una idea, argumento o estructura (evitar traducirlo solo como 'soporte').",
+}
+
+
+def lookup_common_word(raw_word: str) -> Optional[tuple[str, str, str, str, bool]]:
     """Busca una palabra en el diccionario local.
 
-    Devuelve (forma_base, traduccion, categoria) o None si no es una palabra básica.
-    Incluye manejo liviano de plurales y terminaciones regulares (-s, -es, -ed, -ing).
+    Devuelve (forma_base, traduccion, categoria, tip_interpretativo, es_trivial) o None.
     """
     token = _clean(raw_word)
     if not token:
         return None
 
+    matched_base: Optional[str] = None
     if token in COMMON_WORDS:
-        tr, pos = COMMON_WORDS[token]
-        return (token, tr, pos)
-
-    # Plurales y 3ª persona singular (-s, -es, -ies)
-    if token.endswith("ies") and len(token) > 4:
-        base = token[:-3] + "y"
-        if base in COMMON_WORDS:
-            tr, pos = COMMON_WORDS[base]
-            return (base, tr, pos)
-    if token.endswith("es") and len(token) > 3:
-        base = token[:-2]
-        if base in COMMON_WORDS:
-            tr, pos = COMMON_WORDS[base]
-            return (base, tr, pos)
-    if token.endswith("s") and len(token) > 2:
-        base = token[:-1]
-        if base in COMMON_WORDS:
-            tr, pos = COMMON_WORDS[base]
-            return (base, tr, pos)
-
-    # Pasado / participio regular (-ed, -d)
-    if token.endswith("ed") and len(token) > 4:
+        matched_base = token
+    elif token.endswith("ies") and len(token) > 4 and (token[:-3] + "y") in COMMON_WORDS:
+        matched_base = token[:-3] + "y"
+    elif token.endswith("es") and len(token) > 3 and token[:-2] in COMMON_WORDS:
+        matched_base = token[:-2]
+    elif token.endswith("s") and len(token) > 2 and token[:-1] in COMMON_WORDS:
+        matched_base = token[:-1]
+    elif token.endswith("ed") and len(token) > 4:
         for base in (token[:-2], token[:-1]):
             if base in COMMON_WORDS:
-                tr, pos = COMMON_WORDS[base]
-                return (base, tr, pos)
-
-    # Gerundio (-ing)
-    if token.endswith("ing") and len(token) > 5:
+                matched_base = base
+                break
+    elif token.endswith("ing") and len(token) > 5:
         for base in (token[:-3], token[:-3] + "e"):
             if base in COMMON_WORDS:
-                tr, pos = COMMON_WORDS[base]
-                return (base, tr, pos)
+                matched_base = base
+                break
 
-    return None
+    if matched_base is None:
+        return None
+
+    tr, pos = COMMON_WORDS[matched_base]
+    is_trivial = matched_base in TRIVIAL_WORDS
+    tip = INTERPRETIVE_TIPS.get(matched_base) or INTERPRETIVE_TIPS.get(token) or ""
+    if not tip and not is_trivial:
+        tip = f"Palabra frecuente ({pos}). Mirá qué función cumple junto a las palabras vecinas."
+    return (matched_base, tr, pos, tip, is_trivial)
