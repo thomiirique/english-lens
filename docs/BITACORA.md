@@ -54,3 +54,12 @@ Registro paso a paso de decisiones, experimentos, problemas encontrados y soluci
 ### Investigación pedagógica ampliada y estimación de cuota
 - **Consumo medido:** ~970 tokens por captura (1 request/captura), totalmente viable en el tier gratuito diario de Google AI Studio.
 - **Documento `docs/03-investigacion-aprendizaje-e-ideas.md`:** Investigamos *Involvement Load Hypothesis*, *Desirable Difficulties / Retrieval Practice*, *Phonological Loop (TTS bimodal)*, *Conciencia Morfológica / Falsos Amigos* y *Sentence Mining*, definiendo 6 features concretas para las próximas iteraciones.
+
+### Fase 4 (Parte 1) — Visual Noticing + Memoria Activa
+- **Visual Noticing sobre el texto (`src/overlay_ui.py` + `match_pattern_indices`):**
+  - Las palabras que pertenecen a reglas gramaticales y *chunks* ahora muestran un subrayado sutil permanente en verde (`#34d399`) o violeta (`#a78bfa`) directamente sobre el recorte.
+  - Al pasar el mouse (o hacer clic para fijar) sobre cualquier tarjeta de gramática o *chunk*, se iluminan exactamente esas palabras arriba en la imagen capturada (incluso patrones partidos con `...`).
+- **Modo Desafío (`🧠 Desafío: ON/OFF`):**
+  - Al tocar una palabra difícil, muestra primero una micro-pista (`clue`) para activar *Need + Search + Evaluation* antes de revelar la traducción con `Espacio` o clic. Las palabras básicas del diccionario local siguen siendo instantáneas.
+- **Check de comprensión (`✍️ ¿Entendí bien?`):**
+  - Caja rápida dentro del panel donde escribís en 1 frase qué entendiste y Gemini evalúa qué captaste bien y si hubo algún matiz gramatical (*Retrieval Practice*).

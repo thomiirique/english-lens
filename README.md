@@ -40,5 +40,8 @@ Todo el diseño, la investigación pedagógica y el avance técnico se documenta
 - [x] **Fase 0:** Investigación pedagógica, definición de UX y documentación inicial.
 - [x] **Fase 1:** Atajos globales (`F9` y `Ctrl + Alt + E`) + captura de pantalla + overlay fullscreen con desenfoque al soltar el mouse.
 - [x] **Fase 2:** Integración de OCR local de Windows (`Windows.Media.Ocr`) con detección de coordenadas por palabra.
-- [x] **Fase 3:** Diccionario local liviano (~35 KB, 0 ms) para palabras frecuentes + Gemini API gratuita enfocada en **gramática**, *chunks* y vocabulario difícil.
-- [ ] **Fase 4:** Pulido de UX, configuración de nivel de inglés (A2–C1) y registro opcional de palabras aprendidas.
+- [x] **Fase 3:** Diccionario local liviano (~20 KB, 0 ms) para palabras frecuentes + Gemini API gratuita enfocada en **gramática**, *chunks* y vocabulario difícil.
+- [x] **Fase 4 (parte 1):**
+  - **Visual Noticing encima del texto:** Subrayado de estructuras sobre la captura + resaltado interactivo al pasar el mouse o hacer clic en cada tarjeta de gramática / *chunk*.
+  - **Memoria activa (evitar olvidar mañana):** **🧠 Modo Desafío** (muestra pista previa antes de revelar español con `Espacio`/clic) + **✍️ ¿Entendí bien?** (*Retrieval Practice* para validar tu lectura en 1 frase).
+- [ ] **Fase 4 (próximos):** Audio TTS local, alertas de Falsos Amigos, *Sentence Mining* (`⭐ Guardar` + repaso Cloze / export Anki).
