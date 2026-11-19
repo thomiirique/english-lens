@@ -300,6 +300,8 @@ class TipsPanel(QFrame):
         self._cards: list[InteractiveInsightCard] = []
         self._pinned_card: Optional[InteractiveInsightCard] = None
         self._challenge_mode = True
+        self._drag_offset: Optional[QPoint] = None
+        self._manually_moved = False
 
         self.setObjectName("tipsPanel")
         self.setStyleSheet(
@@ -433,6 +435,36 @@ class TipsPanel(QFrame):
     def is_typing_summary(self) -> bool:
         return self.summary_input.hasFocus()
 
+    def was_manually_moved(self) -> bool:
+        return self._manually_moved
+
+    def reset_manual_move(self) -> None:
+        self._manually_moved = False
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_offset = event.position().toPoint()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if self._drag_offset is not None and (event.buttons() & Qt.MouseButton.LeftButton):
+            parent = self.parentWidget()
+            new_pos = self.pos() + (event.position().toPoint() - self._drag_offset)
+            if parent is not None:
+                nx = max(8, min(new_pos.x(), parent.width() - self.width() - 8))
+                ny = max(8, min(new_pos.y(), parent.height() - self.height() - 8))
+                new_pos = QPoint(nx, ny)
+            self.move(new_pos)
+            self._manually_moved = True
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if self._drag_offset is not None:
+            self._drag_offset = None
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+        super().mouseReleaseEvent(event)
+
     def _toggle_challenge_mode(self) -> None:
         self._challenge_mode = not self._challenge_mode
         self._update_challenge_btn_style()
@@ -455,6 +487,9 @@ class TipsPanel(QFrame):
         if visible:
             self.summary_input.setFocus()
         self.adjustSize()
+        parent = self.parentWidget()
+        if parent is not None and hasattr(parent, "_position_tips_panel"):
+            parent._position_tips_panel()
 
     def _submit_summary(self) -> None:
         text = self.summary_input.text().strip()
@@ -691,6 +726,7 @@ class LensOverlay(QWidget):
         self._pinned_highlight = (set(), "")
         self._tooltip.hide()
         self._tips_panel.hide()
+        self._tips_panel.reset_manual_move()
         self._hud.setText("Arrastrá sobre el texto en inglés · Esc para cancelar")
         self._hud.adjustSize()
         self._hud.move((self.width() - self._hud.width()) // 2, 18)
@@ -699,20 +735,73 @@ class LensOverlay(QWidget):
         self.update()
 
     def _position_tips_panel(self) -> None:
-        self._tips_panel.adjustSize()
+        """Ubica el panel donde haya más espacio (arriba, abajo, derecha o izquierda) sin tapar el recorte."""
+        if self._tips_panel.was_manually_moved() and self._tips_panel.isVisible():
+            self._tips_panel.adjustSize()
+            return
+
         pw, ph = self.width(), self.height()
+        sel = self._selection_rect
+        margin = 16
+        gap = 14
+
+        space_above = max(0, sel.top() - gap - margin)
+        space_below = max(0, (ph - margin) - (sel.bottom() + gap))
+        space_left = max(0, sel.left() - gap - margin)
+        space_right = max(0, (pw - margin) - (sel.right() + gap))
+
+        # Evaluar las 4 direcciones con sus dimensiones máximas disponibles
+        candidates = [
+            ("below", pw - 2 * margin, space_below),
+            ("above", pw - 2 * margin, space_above),
+            ("right", space_right, ph - 2 * margin),
+            ("left", space_left, ph - 2 * margin),
+        ]
+
+        def score(item: tuple[str, int, int]) -> tuple[int, int, int]:
+            side, avail_w, avail_h = item
+            # Prioridad 1: que entre cómodo sin apretarse (ancho >= 360 y alto >= 170)
+            fits_comfortably = int(avail_w >= 360 and avail_h >= 170)
+            # Prioridad 2: leve preferencia por arriba/abajo si tienen buen alto (>= 250) para leer ancho cómodo
+            wide_bonus = int(side in ("above", "below") and avail_h >= 250 and avail_w >= 520)
+            usable_area = min(avail_w, 660) * min(avail_h, 460)
+            return (fits_comfortably, wide_bonus, usable_area)
+
+        best_side, best_w, best_h = max(candidates, key=score)
+
+        # Ajustar ancho y alto máximo del scroll para que NUNCA pise el recorte seleccionado
+        target_w = max(340, min(640, best_w))
+        self._tips_panel.setFixedWidth(target_w)
+
+        # Estimar altura fija fuera del scroll y garantizar que no exceda best_h
+        chrome_h = 145 if self._tips_panel.check_container.isVisible() else 108
+        max_scroll_h = max(80, min(330, best_h - chrome_h))
+        self._tips_panel.scroll.setMaximumHeight(max_scroll_h)
+        self._tips_panel.adjustSize()
+        if self._tips_panel.height() > best_h:
+            overflow = self._tips_panel.height() - best_h
+            self._tips_panel.scroll.setMaximumHeight(max(64, max_scroll_h - overflow - 4))
+            self._tips_panel.adjustSize()
+
         panel_w = self._tips_panel.width()
         panel_h = self._tips_panel.height()
 
-        x = int(self._selection_rect.center().x() - panel_w / 2)
-        y = self._selection_rect.bottom() + 16
-        if y + panel_h > ph - 16:
-            y = self._selection_rect.top() - panel_h - 16
-        if y < 16:
-            y = ph - panel_h - 16
+        if best_side == "below":
+            x = int(sel.center().x() - panel_w / 2)
+            y = sel.bottom() + gap
+        elif best_side == "above":
+            x = int(sel.center().x() - panel_w / 2)
+            y = sel.top() - gap - panel_h
+        elif best_side == "right":
+            x = sel.right() + gap
+            y = int(sel.center().y() - panel_h / 2)
+        else:  # left
+            x = sel.left() - gap - panel_w
+            y = int(sel.center().y() - panel_h / 2)
 
-        x = max(16, min(x, pw - panel_w - 16))
-        y = max(16, min(y, ph - panel_h - 16))
+        x = max(margin, min(x, pw - panel_w - margin))
+        y = max(margin, min(y, ph - panel_h - margin))
+
         self._tips_panel.move(x, y)
         self._tips_panel.show()
         self._tips_panel.raise_()

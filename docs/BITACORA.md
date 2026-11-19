@@ -63,3 +63,9 @@ Registro paso a paso de decisiones, experimentos, problemas encontrados y soluci
   - Al tocar una palabra difícil, muestra primero una micro-pista (`clue`) para activar *Need + Search + Evaluation* antes de revelar la traducción con `Espacio` o clic. Las palabras básicas del diccionario local siguen siendo instantáneas.
 - **Check de comprensión (`✍️ ¿Entendí bien?`):**
   - Caja rápida dentro del panel donde escribís en 1 frase qué entendiste y Gemini evalúa qué captaste bien y si hubo algún matiz gramatical (*Retrieval Practice*).
+
+### Fix de posicionamiento inteligente y hook global de teclado
+- **Panel sin solapamiento (`_position_tips_panel`):** Evalúa el espacio libre en las 4 direcciones (arriba, abajo, derecha, izquierda), adapta ancho y altura del scroll automáticamente para que **nunca tape el texto capturado** y además permite arrastrar el panel con el mouse.
+- **Hook global `WH_KEYBOARD_LL` + instancia única (`src/hotkey.py`, `src/main.py`):**
+  - Diagnosticamos que `Ctrl+Alt+E` chocaba con `AltGr (€)` en teclado latino, `F9` podía quedar tomado por procesos duplicados/teclas `Fn` (`error 1409`) y `RegisterHotKey` fallaba cuando había instancias previas.
+  - Migramos a un hook de bajo nivel `WH_KEYBOARD_LL` en hilo dedicado con `QueuedConnection` hacia `EnglishLensApp(QObject)` + lock de instancia única (`english_lens.pid`). Atajos activos: **`Ctrl + Shift + Espacio`**, **`Alt + Shift + E`** y **`F8`**.
