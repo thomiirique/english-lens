@@ -39,3 +39,8 @@ Registro paso a paso de decisiones, experimentos, problemas encontrados y soluci
 
 ### Ajuste rápido (Atajo global → `F10`)
 - Cambiamos el atajo global de `Alt + F11` a **`F10`** (una sola tecla) y asociamos `RegisterHotKey` a un `HWND` oculto propio de Qt (`QWidget.winId()`), verificado con prueba sintética de `WM_HOTKEY`.
+
+### Ajustes de UX y API (Prueba real con Gemini)
+- **Desenfoque al soltar el mouse:** Mientras arrastrás el recuadro la pantalla ahora se ve nítida (con un velo sutil) para seleccionar con precisión; recién al soltar el mouse se desenfoca todo el fondo dejando en foco solo el recorte.
+- **Modelos Gemini gratuitos actualizados:** `gemini-2.5-flash` y `gemini-2.0-flash` devolvían `404` para cuentas nuevas. Actualizamos a `gemini-3.5-flash-lite` (principal, ultra rápido) con fallback a `gemini-3.8-flash` y `gemini-3.1-flash-lite`.
+- **Carga de `.env` robusta:** Se carga explícitamente desde la raíz del proyecto con `override=True`.

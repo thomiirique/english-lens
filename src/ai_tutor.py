@@ -11,10 +11,13 @@ from __future__ import annotations
 
 import os
 import re
+from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
+
+_ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 
 
 class WordTranslation(BaseModel):
@@ -87,15 +90,15 @@ REGLAS ESTRICTAS:
 
 
 DEFAULT_MODELS = [
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
-    "gemini-2.0-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3.8-flash",
+    "gemini-3.1-flash-lite",
 ]
 
 
 def analyze_text_with_gemini(text: str, user_level: str = "B1") -> TutorAnalysis:
     """Envía el texto extraído por OCR a la API gratuita de Google Gemini."""
-    load_dotenv()
+    load_dotenv(dotenv_path=_ENV_PATH, override=True)
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
 
     if not api_key or api_key == "pega_tu_api_key_aca":

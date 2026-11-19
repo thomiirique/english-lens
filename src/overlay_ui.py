@@ -225,7 +225,8 @@ class TipsPanel(QFrame):
     def show_analysis(self, analysis: TutorAnalysis, word_count: int, ocr_lang: str) -> None:
         self._clear_content()
 
-        if analysis.status_message:
+        has_data = bool(analysis.words or analysis.chunks or analysis.reading_tips)
+        if analysis.status_message and not has_data:
             self.status_label.setText(analysis.status_message)
             self.status_label.setStyleSheet("color: #fbbf24;")
             self.status_label.show()
@@ -546,10 +547,14 @@ class LensOverlay(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # 1. Fondo desenfocado fullscreen
-        painter.drawPixmap(0, 0, self._blurred_pixmap)
+        # 1. Fondo: nítido (con velo leve) mientras seleccionás; desenfocado recién al soltar el mouse
+        if self._state == "selecting":
+            painter.drawPixmap(0, 0, self._original_pixmap)
+            painter.fillRect(self.rect(), QColor(15, 23, 42, 65))
+        else:
+            painter.drawPixmap(0, 0, self._blurred_pixmap)
 
-        # 2. Región seleccionada nítida (sin desenfoque)
+        # 2. Región seleccionada nítida (sin velo ni desenfoque)
         if not self._selection_rect.isNull():
             painter.save()
             painter.setClipRect(self._selection_rect)
