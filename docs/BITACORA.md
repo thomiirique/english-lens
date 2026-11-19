@@ -36,3 +36,6 @@ Registro paso a paso de decisiones, experimentos, problemas encontrados y soluci
 - **`src/ai_tutor.py`:** Cliente `google-genai` con salida estructurada Pydantic (`TutorAnalysis`) que devuelve en **1 sola llamada**: mapa de palabras en contexto (`words`), frases de manual (`chunks`) y 1–3 tips de estructura (`reading_tips`). Incluye modo degradado si todavía no se configuró `GEMINI_API_KEY`.
 - **`src/overlay_ui.py`:** Overlay fullscreen sin bordes respetando DPI (`devicePixelRatio`), recorte nítido sobre fondo desenfocado, hitboxes interactivas sobre cada palabra, tooltip flotante contextual y panel de tips.
 - **`src/main.py` y `run.bat`:** Ejecución discreta en la bandeja del sistema (*system tray*).
+
+### Ajuste rápido (Atajo global → `F10`)
+- Cambiamos el atajo global de `Alt + F11` a **`F10`** (una sola tecla) y asociamos `RegisterHotKey` a un `HWND` oculto propio de Qt (`QWidget.winId()`), verificado con prueba sintética de `WM_HOTKEY`.

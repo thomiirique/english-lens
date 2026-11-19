@@ -39,10 +39,10 @@ class EnglishLensApp:
         self.overlay: LensOverlay | None = None
 
         self.tray = QSystemTrayIcon(_create_tray_icon(), app)
-        self.tray.setToolTip("English Lens — Presioná Alt + F11 para capturar")
+        self.tray.setToolTip("English Lens — Presioná F10 para capturar")
 
         menu = QMenu()
-        capture_action = QAction("Capturar ahora (Alt + F11)", menu)
+        capture_action = QAction("Capturar ahora (F10)", menu)
         capture_action.triggered.connect(self.trigger_capture)
         quit_action = QAction("Salir", menu)
         quit_action.triggered.connect(self.quit)
@@ -60,12 +60,12 @@ class EnglishLensApp:
         if ok:
             self.tray.showMessage(
                 "English Lens activo",
-                "Presioná Alt + F11 en cualquier pantalla para leer con desenfoque y tips.",
+                "Presioná F10 en cualquier pantalla para leer con desenfoque y tips.",
                 QSystemTrayIcon.MessageIcon.Information,
                 2500,
             )
         else:
-            print("[AVISO] No se pudo registrar Alt + F11 (puede estar en uso por otra app).")
+            print("[AVISO] No se pudo registrar F10 (puede estar en uso por otra app).")
 
     def _on_tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
